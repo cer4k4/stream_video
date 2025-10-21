@@ -1,4 +1,5 @@
 - refactor structure of code
+
 - research about Background Task
 - add encode with DASH & HLS for DRM
 - add status to mongo 
