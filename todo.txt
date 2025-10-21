@@ -1,0 +1,5 @@
+- refactor structure of code
+- research about Background Task
+- add encode with DASH & HLS for DRM
+- add status to mongo 
+- remove files from root project when all videos uploaded in minio
