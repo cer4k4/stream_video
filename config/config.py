@@ -12,10 +12,16 @@ class Config:
         self.minioUsername = os.getenv("MINIO_USERNAME")
         self.minioDirectory = os.getenv("MINIO_DIRECTORY")
         self.minioBucketName = os.getenv("MINIO_BUCKET_NAME")
+
         # Host
         self.host = os.getenv("HOST")
         self.port = os.getenv("PORT")
+
         # Directory
         self.outputPath = os.getenv("OUTPUT_DIRECTORY_PATH")
-        self.renderdPath = os.getenv("RENDERED_DIRECTORY_PATH")
+        self.renderedPath = os.getenv("RENDERED_DIRECTORY_PATH")
 
+        # MongoDB connection
+        self.mongoHost = os.getenv("MONGODB_HOST")
+        self.mongoPort = os.getenv("MONGODB_PORT")
+        self.mongoDatabase = os.getenv("MONGODB_DB_NAME")

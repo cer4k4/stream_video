@@ -1,11 +1,13 @@
 import io
 from minio import Minio
+from config.config import Config
 from defualt_render_list import *
 
 
 class MinIORepository:
-    def __init__(self,connection:Minio,bucket:str,directory:str):
-        self.connection = connection
+    def __init__(self,bucket:str,directory:str):
+        cfg = Config()
+        self.connection = Minio(endpoint=f"{cfg.minioHost}:{cfg.minioPort}",access_key=cfg.minioUsername,secret_key=cfg.minioPassword,secure=False)
         self.bucket = bucket
         self.directory = directory
 
