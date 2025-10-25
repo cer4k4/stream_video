@@ -4,13 +4,13 @@ from fastapi import UploadFile
 from defualt_render_list import *
 from repository.mongo import MongoRepository
 
+
 class FileService:
-    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,file:UploadFile,rootProjectPath:str,renderedPath:str):
+    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,rootProjectPath:str,renderedPath:str,fileName: str):
         self.mongoRepository = mongoRepository
         self.minioRepository = minioRepository
-        self.file = file
         self.rootProjectPath = rootProjectPath
-        self.fileName = file.filename
+        self.fileName = fileName
         self.renderedPath = renderedPath
     
     def run(self,cmd, cwd=None):
@@ -23,40 +23,101 @@ class FileService:
             print(NameError)
         return proc.stdout
 
-    async def transcode_renditions(self, height:str , width:str, bitrate:str ,workdir: pathlib.Path,fileName:str):
-        """Use ffmpeg to generate renditions (fMP4-ready)"""
-        out_file = workdir + fileName + " " + f"{height}p.mp4"
+    # async def transcode_renditions(self, height:str , width:str, bitrate:str ,workdir: pathlib.Path,fileName:str):
+    #     """Use ffmpeg to generate renditions (fMP4-ready)"""
+    #     out_file = workdir + fileName + " " + f"{height}p.mp4"
+    #     audio_bitrate_kbps = 128
+    #     cmd = [
+    #         "ffmpeg" , "-y", "-i", str(self.rootProjectPath),
+    #         "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast",
+    #         "-b:v", f"{bitrate}k",
+    #         "-vf", f"scale=:w={width}:h={height}:force_original_aspect_ratio=decrease",
+    #         "-c:a", "aac", "-b:a", f"{audio_bitrate_kbps}k",
+    #         "-movflags", "+faststart",
+    #         str(out_file)
+    #     ]
+    #     self.run(cmd=cmd)
+    #     return fileName+" "+f"{height}p.mp4"
+    
+    async def transcode_renditions(self, height: str, width: str, bitrate: str, workdir: pathlib.Path, fileName: str):
+        """Use ffmpeg to generate fMP4 renditions ready for DASH/HLS"""
+        out_file = workdir+f"{fileName}{height}p.mp4"  # بدون فاصله
         audio_bitrate_kbps = 128
         cmd = [
-            "ffmpeg" , "-y", "-i", str(self.rootProjectPath),
+            "ffmpeg", "-y", "-i", str(self.rootProjectPath),
             "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast",
             "-b:v", f"{bitrate}k",
-            "-vf", f"scale=:w={width}:h={height}:force_original_aspect_ratio=decrease",
+            "-vf", f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease",
             "-c:a", "aac", "-b:a", f"{audio_bitrate_kbps}k",
-            "-movflags", "+faststart",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",  # مهم برای shaka-packager
             str(out_file)
         ]
-        self.run(cmd=cmd)
-        return fileName+" "+f"{height}p.mp4"
-    
-    async def uploadFilesToMinio(self,renderedFiles:list):
-        await self.mongoRepository.update_status(self.file.filename,"uploading in minio")
-        await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
-        cmd = ["rm",self.rootProjectPath]
         self.run(cmd)
-        # cmd = ["rm",self.renderedPath+"*"]
-        # self.run(cmd)
-        await self.mongoRepository.update_status(self.file.filename,"done")
+        return f"{fileName}{height}p.mp4"
+
+
+
+
+
+    async def uploadFilesToMinio(self,renderedFiles:list):
+        await self.mongoRepository.update_status(self.fileName,"uploading in minio")
+        await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
+        await self.package_to_cmaf(renderedFiles)
+        #await self.removeLocalFiles(renderedFiles)
+        await self.mongoRepository.update_status(self.fileName,"done")
 
     async def rendetionFiles(self,renderedPath:str):
-        fileNameWithOutSuffix = self.file.filename.removesuffix(".mp4")
+        fileNameWithOutSuffix = self.fileName.removesuffix(".mp4")
         cmd = ["ffprobe", "-v" ,"error", "-select_streams" ,"v:0" ,"-show_entries", "stream=width,height" ,"-of" ,"csv=s=x:p=0", self.rootProjectPath]
         videoResolution = self.run(cmd=cmd)
         outputfiles = []
-        await self.mongoRepository.update_status(self.file.filename,"rendering")
+        await self.mongoRepository.update_status(self.fileName,"rendering")
         for rosoulation in defualtRenderList:
             if rosoulation.get("width") <= int(videoResolution.split("x")[0]):
                 outfile = await self.transcode_renditions(height=rosoulation.get("height"),width=rosoulation.get("width"),bitrate=rosoulation.get("video_bitrate_kbps"),workdir=renderedPath,fileName=fileNameWithOutSuffix)
                 outputfiles.append(outfile)
-    
         return outputfiles
+                
+    async def removeLocalFiles(self,renderedFiles:list):
+        # Remove first uploaded File that gave from enduser
+        cmd = ["rm",self.rootProjectPath]
+        self.run(cmd)
+        # Remove Rendered Files
+        for f in renderedFiles:
+            cmd = ["rm",self.renderedPath+f]
+            self.run(cmd)
+
+    async def package_to_cmaf(self, rendered_files: list):
+        """
+        Package renditions to CMAF (DASH + HLS)
+        """
+        job_dir = pathlib.Path(self.renderedPath)
+        manifest_mpd = job_dir / "manifest.mpd"
+        manifest_m3u8 = job_dir / "master.m3u8"
+
+        # Create track list for shaka-packager
+        input_tracks = []
+        for f in rendered_files:
+            height = f.replace("p.mp4", "")
+            input_tracks.append(
+                f"in={job_dir}/{f},stream=video,output={job_dir}/video_{height}p.mp4"
+            )
+
+        # برای سادگی فقط یک ترک صوتی اضافه می‌کنیم
+        input_tracks.append(
+            f"in={self.rootProjectPath},stream=audio,output={job_dir}/audio.mp4"
+        )
+
+        # حالا دستور packager بساز
+        for i in input_tracks:
+            cmd = [
+                "packager",
+                i,
+                f"--mpd_output={manifest_mpd}",
+                f"--hls_master_playlist_output={manifest_m3u8}",
+                "--hls_base_url=/outputs/",
+                "--generate_static_live_mpd",
+            ]
+            print("Running:", " ".join(cmd))
+            self.run(cmd)
+        return str(manifest_mpd), str(manifest_m3u8)

@@ -1,10 +1,10 @@
 ToDo:
-    - fix remove videos from rendered
-    - research about Background Task
     - add encode with DASH & HLS for DRM
-    - remove files from root project when all videos uploaded in minio
-    - error handling
+    - error handling & status Response
 ___________________________________________
 Done:
+    - remove files from root project when all videos uploaded in minio
+    - fix remove videos from rendered
+    - research about Background Task
     - add status to mongo 
     - refactor structure of code
