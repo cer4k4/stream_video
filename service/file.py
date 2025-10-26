@@ -56,9 +56,6 @@ class FileService:
         return f"{fileName}{height}p.mp4"
 
 
-
-
-
     async def uploadFilesToMinio(self,renderedFiles:list):
         await self.mongoRepository.update_status(self.fileName,"uploading in minio")
         await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
@@ -95,7 +92,6 @@ class FileService:
         manifest_mpd = job_dir / "manifest.mpd"
         manifest_m3u8 = job_dir / "master.m3u8"
 
-        # Create track list for shaka-packager
         input_tracks = []
         for f in rendered_files:
             height = f.replace("p.mp4", "")
@@ -103,21 +99,33 @@ class FileService:
                 f"in={job_dir}/{f},stream=video,output={job_dir}/video_{height}p.mp4"
             )
 
-        # برای سادگی فقط یک ترک صوتی اضافه می‌کنیم
         input_tracks.append(
             f"in={self.rootProjectPath},stream=audio,output={job_dir}/audio.mp4"
         )
 
-        # حالا دستور packager بساز
-        for i in input_tracks:
-            cmd = [
-                "packager",
-                i,
-                f"--mpd_output={manifest_mpd}",
-                f"--hls_master_playlist_output={manifest_m3u8}",
-                "--hls_base_url=/outputs/",
-                "--generate_static_live_mpd",
-            ]
-            print("Running:", " ".join(cmd))
-            self.run(cmd)
+        cmd = [
+            "packager",
+            *input_tracks,
+            f"--mpd_output={manifest_mpd}",
+            f"--hls_master_playlist_output={manifest_m3u8}",
+            "--hls_base_url=/outputs/",
+            "--generate_static_live_mpd",
+        ]
+        print("Running:", " ".join(cmd))
+        self.run(cmd)
+
+        # cmd = [
+        #     "packager",
+        #     *input_tracks,
+        #     f"--mpd_output={manifest_mpd}",
+        #     f"--hls_master_playlist_output={manifest_m3u8}",
+        #     "--hls_base_url=/outputs/",
+        #     "--generate_static_live_mpd",
+        #     "--enable_raw_key_encryption",
+        #     "--keys=label=SD:key_id=1ae8ccd0e84e405bbbe434b53562b1c9:key=2b7e151628aed2a6abf7158809cf4f3c,"
+        #     "label=HD:key_id=2ae8ccd0e84e405bbbe434b53562b1c9:key=3b7e151628aed2a6abf7158809cf4f3c,"
+        #     "label=AUDIO:key_id=4ae8ccd0e84e405bbbe434b53562b1c9:key=5b7e151628aed2a6abf7158809cf4f3c",
+        #     "--protection_scheme=cenc",
+        #     "--clear_lead=0"
+        # ]
         return str(manifest_mpd), str(manifest_m3u8)

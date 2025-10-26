@@ -1,0 +1,144 @@
+#!/home/aka/Templates/project/.venv/bin/python3
+#
+# Copyright 2019 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Shaka Streamer v{version}
+
+Shaka Streamer offers a simple config-file based approach to preparing streaming
+media. It greatly simplifies the process of using FFmpeg and Shaka Packager for
+both VOD and live content.
+
+Full documentation can be found at
+https://shaka-project.github.io/shaka-streamer/
+"""
+
+import argparse
+import json
+import sys
+import time
+import yaml  # type: ignore
+
+import streamer
+
+
+class CustomArgParseFormatter(
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.RawDescriptionHelpFormatter):
+  """A custom formatter that combines the features of multiple base classes.
+
+  This gives us defaults for each argument in the help text, plus it preserves
+  whitespace in the description field.
+  """
+  pass
+
+
+def main():
+  description = __doc__.format(version=streamer.__version__)
+
+  parser = argparse.ArgumentParser(description=description,
+                                   formatter_class=CustomArgParseFormatter,
+                                   epilog="""
+The output location can be a local filsystem folder.  It will be created if it
+does not exist.  It can also be an HTTP or HTTPS URL, or a cloud storage URL.
+See docs: https://shaka-project.github.io/shaka-streamer/cloud_storage.html
+""")
+
+  parser.add_argument('-i', '--input-config',
+                      required=True,
+                      help='The path to the input config file (required).')
+  parser.add_argument('-p', '--pipeline-config',
+                      required=True,
+                      help='The path to the pipeline config file (required).')
+  parser.add_argument('-b', '--bitrate-config',
+                      help='The path to a config file which defines custom ' +
+                           'bitrates and resolutions for transcoding. ' +
+                           '(optional, see example in ' +
+                           'config_files/bitrate_config.yaml)')
+  parser.add_argument('-c', '--cloud-url',
+                      default=None,
+                      help='The Google Cloud Storage or Amazon S3 URL to ' +
+                           'upload to.  (Starts with gs:// or s3://) (DEPRECATED, use -o)')
+  parser.add_argument('-o', '--output',
+                      default='output_files',
+                      help='The output folder or URL to write files to.  See ' +
+                           'below for details.')
+  parser.add_argument('--skip-deps-check',
+                      action='store_true',
+                      help='Skip checks for dependencies and their versions. ' +
+                           'This can be useful for testing pre-release ' +
+                           'versions of FFmpeg or Shaka Packager.')
+  parser.add_argument('--use-system-binaries',
+                      action='store_true',
+                      help='Use FFmpeg, FFprobe and Shaka Packager binaries ' +
+                           'found in PATH instead of the ones offered by ' +
+                           'Shaka Streamer.')
+  parser.add_argument('--log-configs',
+                      action='store_true',
+                      help='Log simplified versions of the config files to ' +
+                           'stderr. May be useful in services, to look at ' +
+                           'logs later to understand when configs changed, ' +
+                           'and how they may have impacted performance.')
+
+  args = parser.parse_args()
+
+
+  controller = streamer.controller_node.ControllerNode()
+
+  with open(args.input_config) as f:
+    input_config_dict = yaml.safe_load(f)
+  with open(args.pipeline_config) as f:
+    pipeline_config_dict = yaml.safe_load(f)
+
+  bitrate_config_dict = {}
+  if args.bitrate_config:
+    with open(args.bitrate_config) as f:
+      bitrate_config_dict = yaml.safe_load(f)
+
+  if args.log_configs:
+    configs = {
+      'input': input_config_dict,
+      'pipeline': pipeline_config_dict,
+      'bitrate': bitrate_config_dict,
+    }
+    print('Configs: {}'.format(json.dumps(configs)), file=sys.stderr)
+
+  try:
+    if args.cloud_url:
+      print('Warning: -c/--cloud-url is deprecated; use -o/--output instead',
+            file=sys.stderr)
+      args.output = args.cloud_url
+
+    with controller.start(args.output, input_config_dict, pipeline_config_dict,
+                          bitrate_config_dict,
+                          not args.skip_deps_check,
+                          not args.use_system_binaries):
+      # Sleep so long as the pipeline is still running.
+      while True:
+        status = controller.check_status()
+        if status != streamer.node_base.ProcessStatus.Running:
+          return 0 if status == streamer.node_base.ProcessStatus.Finished else 1
+
+        time.sleep(1)
+  except (streamer.controller_node.VersionError,
+          streamer.configuration.ConfigError) as e:
+    # These are common errors meant to give the user specific, helpful
+    # information.  Format these errors in a relatively friendly way, with no
+    # backtrace or other Python-specific information.
+    print('Fatal error:')
+    print('  ' + str(e))
+
+if __name__ == '__main__':
+  sys.exit(main())

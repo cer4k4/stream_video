@@ -18,7 +18,6 @@ async def saveFile(fileName: str,filePath:str):
     renderedFiles = await service.rendetionFiles(renderedPath=cfg.renderedPath)
     await service.uploadFilesToMinio(renderedFiles)
 
-    
 @router.post("/uploadfile/")
 async def create_upload_file(file: UploadFile):
     cfg = Config()
