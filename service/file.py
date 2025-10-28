@@ -6,7 +6,7 @@ from repository.mongo import MongoRepository
 
 
 class FileService:
-    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,rootProjectPath:str,renderedPath:str,fileName: str):
+    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,rootProjectPath: str,renderedPath: str,fileName: str):
         self.mongoRepository = mongoRepository
         self.minioRepository = minioRepository
         self.rootProjectPath = rootProjectPath
@@ -38,7 +38,7 @@ class FileService:
     #     ]
     #     self.run(cmd=cmd)
     #     return fileName+" "+f"{height}p.mp4"
-    
+
     async def transcode_renditions(self, height: str, width: str, bitrate: str, workdir: pathlib.Path, fileName: str):
         """Use ffmpeg to generate fMP4 renditions ready for DASH/HLS"""
         out_file = workdir+f"{fileName}{height}p.mp4"  # بدون فاصله
@@ -55,8 +55,7 @@ class FileService:
         self.run(cmd)
         return f"{fileName}{height}p.mp4"
 
-
-    async def uploadFilesToMinio(self,renderedFiles:list):
+    async def uploadFilesToMinio(self,renderedFiles: list):
         await self.mongoRepository.update_status(self.fileName,"uploading in minio")
         await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
         await self.package_to_cmaf(renderedFiles)
@@ -74,8 +73,8 @@ class FileService:
                 outfile = await self.transcode_renditions(height=rosoulation.get("height"),width=rosoulation.get("width"),bitrate=rosoulation.get("video_bitrate_kbps"),workdir=renderedPath,fileName=fileNameWithOutSuffix)
                 outputfiles.append(outfile)
         return outputfiles
-                
-    async def removeLocalFiles(self,renderedFiles:list):
+    
+    async def removeLocalFiles(self,renderedFiles: list):
         # Remove first uploaded File that gave from enduser
         cmd = ["rm",self.rootProjectPath]
         self.run(cmd)
@@ -102,7 +101,6 @@ class FileService:
         input_tracks.append(
             f"in={self.rootProjectPath},stream=audio,output={job_dir}/audio.mp4"
         )
-
         cmd = [
             "packager",
             *input_tracks,
@@ -111,21 +109,8 @@ class FileService:
             "--hls_base_url=/outputs/",
             "--generate_static_live_mpd",
         ]
+
         print("Running:", " ".join(cmd))
         self.run(cmd)
 
-        # cmd = [
-        #     "packager",
-        #     *input_tracks,
-        #     f"--mpd_output={manifest_mpd}",
-        #     f"--hls_master_playlist_output={manifest_m3u8}",
-        #     "--hls_base_url=/outputs/",
-        #     "--generate_static_live_mpd",
-        #     "--enable_raw_key_encryption",
-        #     "--keys=label=SD:key_id=1ae8ccd0e84e405bbbe434b53562b1c9:key=2b7e151628aed2a6abf7158809cf4f3c,"
-        #     "label=HD:key_id=2ae8ccd0e84e405bbbe434b53562b1c9:key=3b7e151628aed2a6abf7158809cf4f3c,"
-        #     "label=AUDIO:key_id=4ae8ccd0e84e405bbbe434b53562b1c9:key=5b7e151628aed2a6abf7158809cf4f3c",
-        #     "--protection_scheme=cenc",
-        #     "--clear_lead=0"
-        # ]
         return str(manifest_mpd), str(manifest_m3u8)

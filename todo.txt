@@ -8,3 +8,19 @@ Done:
     - research about Background Task
     - add status to mongo 
     - refactor structure of code
+
+
+            # cmd = [
+        #     "packager",
+        #     *input_tracks,
+        #     f"--mpd_output={manifest_mpd}",
+        #     f"--hls_master_playlist_output={manifest_m3u8}",
+        #     "--hls_base_url=/outputs/",
+        #     "--generate_static_live_mpd",
+        #     "--enable_raw_key_encryption",
+        #     "--keys=label=SD:key_id=1ae8ccd0e84e405bbbe434b53562b1c9:key=2b7e151628aed2a6abf7158809cf4f3c,"
+        #     "label=HD:key_id=2ae8ccd0e84e405bbbe434b53562b1c9:key=3b7e151628aed2a6abf7158809cf4f3c,"
+        #     "label=AUDIO:key_id=4ae8ccd0e84e405bbbe434b53562b1c9:key=5b7e151628aed2a6abf7158809cf4f3c",
+        #     "--protection_scheme=cenc",
+        #     "--clear_lead=0"
+        # ]
