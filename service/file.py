@@ -10,8 +10,8 @@ class FileService:
         self.mongoRepository = mongoRepository
         self.minioRepository = minioRepository
         self.rootProjectPath = rootProjectPath
-        self.fileName = fileName
         self.renderedPath = renderedPath
+        self.fileName = fileName
     
     def run(self,cmd, cwd=None):
         """Run subprocess command and raise error on failure"""
@@ -56,11 +56,12 @@ class FileService:
         return f"{fileName}{height}p.mp4"
 
     async def uploadFilesToMinio(self,renderedFiles: list):
-        await self.mongoRepository.update_status(self.fileName,"uploading in minio")
-        await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
-        await self.package_to_cmaf(renderedFiles)
-        #await self.removeLocalFiles(renderedFiles)
-        await self.mongoRepository.update_status(self.fileName,"done")
+        # await self.mongoRepository.update_status(self.fileName,"uploading in minio")
+        # await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
+        # await self.package_to_cmaf(renderedFiles)
+        # await self.removeLocalFiles(renderedFiles)
+        # await self.mongoRepository.update_status(self.fileName,"done")
+        await self.package_hls_to_ts()
 
     async def rendetionFiles(self,renderedPath:str):
         fileNameWithOutSuffix = self.fileName.removesuffix(".mp4")
@@ -114,3 +115,27 @@ class FileService:
         self.run(cmd)
 
         return str(manifest_mpd), str(manifest_m3u8)
+    
+    async def package_hls_to_ts(self):
+        print("hiiiiii")
+        """
+        Package video into traditional HLS with .ts segments.
+        """
+        # job_dir = pathlib.Path(self.renderedPath)
+        out_playlist = "/home/aka/Templates/project/outputs/master.m3u8"
+        segment_pattern = "/home/aka/Templates/project/outputs/segment_%03d.ts"
+
+        cmd = [
+            "ffmpeg", "-i", str(self.rootProjectPath),
+            "-c:v", "libx264", "-preset", "veryfast",
+            "-c:a", "aac", "-f", "hls",
+            "-hls_time", "6",
+            "-hls_playlist_type", "vod",
+            "-hls_segment_filename", str(segment_pattern),
+            str(out_playlist)
+        ]
+        self.run(cmd)
+        return str(out_playlist)
+    
+
+    

@@ -24,7 +24,7 @@ class MinIORepository:
         else:
             print("Bucket", self.bucket, "already exists")
             
-    async def uploadFiles(self,files: list,filesPath:str):
+    async def uploadFiles(self,files: list,filesPath: str):
         """Return True if any object starts with prefix (simulate directory existence)"""
         for o in files:
             if not self.directory_exists():
@@ -32,4 +32,3 @@ class MinIORepository:
                 self.connection.put_object(self.bucket, self.directory, data, 0)
             else:
                 self.connection.fput_object(self.bucket,object_name=self.directory+o,file_path=filesPath+o)
-    

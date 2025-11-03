@@ -1,6 +1,7 @@
 ToDo:
     - add encode with DASH & HLS for DRM
     - error handling & status Response
+    - think about rendering videos (process and effeshient algoritm)
 ___________________________________________
 Done:
     - remove files from root project when all videos uploaded in minio
@@ -10,7 +11,7 @@ Done:
     - refactor structure of code
 
 
-            # cmd = [
+        # cmd = [
         #     "packager",
         #     *input_tracks,
         #     f"--mpd_output={manifest_mpd}",

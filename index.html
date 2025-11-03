@@ -1,111 +1,17 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Adaptive HLS Player</title>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.1"></script>
-<style>
-  body{background:#0f172a;color:#f8fafc;font-family:system-ui,Segoe UI,Roboto;padding:20px;}
-  .player{max-width:800px;margin:auto;text-align:center;}
-  video{width:100%;border-radius:8px;background:#000;}
-  select,button{margin-top:10px;padding:8px;border-radius:6px;border:1px solid #475569;background:#1e293b;color:#f1f5f9;}
-  button{cursor:pointer;background:#0284c7;border:none;}
-  h2{font-weight:500;margin-bottom:10px}
-</style>
-</head>
-<body>
-  <div class="player">
-    <h2>Adaptive HLS Player</h2>
-    <video id="video" controls playsinline></video>
-    <div>
-      <select id="quality"></select>
-      <button id="reload">Reload</button>
-    </div>
-  </div>
-
-  <script>
-    const video = document.getElementById("video");
-    const qualitySelect = document.getElementById("quality");
-    const reloadBtn = document.getElementById("reload");
-
-    // Path to your HLS master playlist (from Shaka Packager)
-    const MANIFEST_URL = "outputs/master.m3u8";
-
-    let hls;
-
-    function initPlayer() {
-      if (Hls.isSupported()) {
-        hls = new Hls({
-          enableWorker: true,
-          capLevelToPlayerSize: false,
-          maxBufferLength: 30,
-          abrEwmaFastLive: 3.0,
-          abrEwmaSlowLive: 9.0,
-          startLevel: -1,  // start auto
-        });
-
-        hls.loadSource(MANIFEST_URL);
-        hls.attachMedia(video);
-
-        // Once manifest parsed, fill quality list
-        hls.on(Hls.Events.MANIFEST_PARSED, function (_, data) {
-          const levels = data.levels;
-          qualitySelect.innerHTML = "";
-
-          // Add "Auto" option
-          const autoOpt = document.createElement("option");
-          autoOpt.value = "-1";
-          autoOpt.textContent = "Auto";
-          qualitySelect.appendChild(autoOpt);
-
-          levels.forEach((lvl, i) => {
-            const opt = document.createElement("option");
-            const res = lvl.height ? `${lvl.height}p` : `${Math.round(lvl.bitrate / 1000)} kbps`;
-            opt.value = i;
-            opt.textContent = res;
-            qualitySelect.appendChild(opt);
-          });
-
-          qualitySelect.value = "-1"; // default auto
-          video.play();
-        });
-
-        // Listen for auto level changes (for displaying ABR)
-        hls.on(Hls.Events.LEVEL_SWITCHED, function (_, data) {
-          const level = hls.levels[data.level];
-          console.log("Switched to level:", level.height + "p");
-        });
-
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          console.warn("HLS Error:", data);
-        });
-
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = MANIFEST_URL;
-      } else {
-        alert("HLS not supported in this browser");
-      }
-    }
-
-    // Quality change event
-    qualitySelect.addEventListener("change", () => {
-      const selected = parseInt(qualitySelect.value);
-      if (!hls) return;
-      if (selected === -1) {
-        hls.currentLevel = -1; // Auto
-        console.log("Switched to Auto");
-      } else {
-        hls.currentLevel = selected;
-        console.log("Manual quality:", selected);
-      }
-    });
-
-    reloadBtn.addEventListener("click", () => {
-      hls?.destroy();
-      initPlayer();
-    });
-
-    initPlayer();
-  </script>
-</body>
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>DASH Player</title>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+  </head>
+  <body style="background:#111;color:white;text-align:center">
+    <h2>DASH Player</h2>
+    <video id="video" controls width="800"></video>
+    <script>
+      const url = "outputs/master.m3u8"; // rename this to master.mpd
+      const player = dashjs.MediaPlayer().create();
+      player.initialize(document.querySelector("#video"), url, true);
+    </script>
+  </body>
 </html>

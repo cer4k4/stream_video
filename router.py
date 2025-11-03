@@ -14,6 +14,7 @@ async def saveFile(fileName: str,filePath:str):
     mongoRepo = MongoRepository()
     minioRepo = MinIORepository(bucket=cfg.minioBucketName,directory=cfg.minioDirectory)
     service = FileService(mongoRepository=mongoRepo,minioRepository=minioRepo,fileName=fileName,rootProjectPath=filePath,renderedPath=cfg.renderedPath)
+    await service.package_hls_to_ts()
 
     renderedFiles = await service.rendetionFiles(renderedPath=cfg.renderedPath)
     await service.uploadFilesToMinio(renderedFiles)
