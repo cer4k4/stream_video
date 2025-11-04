@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HLS Player</title>
+  <title>HLS Player with Quality Selector</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
     body {
@@ -22,31 +22,103 @@
       border-radius: 10px;
       box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
     }
+    select {
+      margin-top: 20px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      background: #1e1e1e;
+      color: white;
+      border: 1px solid #333;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
   <h1>HLS (.m3u8 / .ts) Player</h1>
   <video id="video" controls autoplay></video>
+  <select id="qualitySelector"></select>
 
   <script>
-    const video = document.getElementById('video');
-    const videoSrc = 'outputs/master.m3u8'; // your uploaded file
+    const video = document.getElementById("video");
+    const selector = document.getElementById("qualitySelector");
+    const videoSrc = "outputs/master.m3u8"; // Path to your master.m3u8 file
 
     if (Hls.isSupported()) {
       const hls = new Hls();
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+
+      // Once the manifest is loaded
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        const levels = hls.levels || [];
+
+        // Reset selector and add "Auto"
+        selector.innerHTML = '<option value="-1">Auto</option>';
+
+        levels.forEach((level, i) => {
+          let label = "Unknown";
+
+          // Handle standard (1280x720) and non-standard (720p) formats
+          if (level.attrs?.RESOLUTION) {
+            const res = level.attrs.RESOLUTION;
+            if (res.includes("x")) {
+              const height = res.split("x")[1];
+              label = `${height}p`;
+            } else if (res.endsWith("p")) {
+              label = res;
+            } else {
+              label = res + "p";
+            }
+          } else if (level.height) {
+            label = `${level.height}p`;
+          } else if (level.bitrate) {
+            label = `${Math.round(level.bitrate / 1000)} kbps`;
+          } else {
+            label = `Stream ${i + 1}`;
+          }
+
+          const option = document.createElement("option");
+          option.value = i;
+          option.textContent = label;
+          selector.appendChild(option);
+        });
+
+        console.log("Detected levels:", levels);
         video.play();
       });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // for Safari
+
+      // Handle quality switching
+      selector.addEventListener("change", function () {
+        const level = parseInt(this.value, 10);
+        if (level === -1) {
+          hls.currentLevel = -1; // Auto mode
+          console.log("Switched to Auto quality");
+        } else {
+          hls.currentLevel = level;
+          console.log(`Switched to ${hls.levels[level]?.attrs?.RESOLUTION || 'manual level'}`);
+        }
+      });
+
+      // Optional: update selector when auto changes level
+      hls.on(Hls.Events.LEVEL_SWITCHED, function (event, data) {
+        const currentLevel = data.level;
+        if (currentLevel >= 0 && currentLevel < hls.levels.length) {
+          selector.value = currentLevel;
+          console.log("Auto switched to:", hls.levels[currentLevel].attrs?.RESOLUTION);
+        }
+      });
+
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari native HLS
       video.src = videoSrc;
-      video.addEventListener('loadedmetadata', () => {
-        video.play();
-      });
+      video.addEventListener("loadedmetadata", () => video.play());
+      selector.style.display = "none";
     } else {
-      document.body.innerHTML = '<p>Your browser does not support HLS.</p>';
+      document.body.innerHTML = "<p>Your browser does not support HLS playback.</p>";
     }
   </script>
 </body>
