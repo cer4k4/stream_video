@@ -121,7 +121,7 @@ class FileService:
         """
         Package video into traditional HLS with .ts segments.
         """
-        # job_dir = pathlib.Path(self.renderedPath)
+        job_dir = pathlib.Path(self.renderedPath)
         out_playlist = "/home/aka/Templates/project/outputs/master.m3u8"
         segment_pattern = "/home/aka/Templates/project/outputs/segment_%03d.ts"
 

@@ -1,17 +1,53 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <title>DASH Player</title>
-    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
-  </head>
-  <body style="background:#111;color:white;text-align:center">
-    <h2>DASH Player</h2>
-    <video id="video" controls width="800"></video>
-    <script>
-      const url = "outputs/master.m3u8"; // rename this to master.mpd
-      const player = dashjs.MediaPlayer().create();
-      player.initialize(document.querySelector("#video"), url, true);
-    </script>
-  </body>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HLS Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: #121212;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+    video {
+      width: 80%;
+      max-width: 800px;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <h1>HLS (.m3u8 / .ts) Player</h1>
+  <video id="video" controls autoplay></video>
+
+  <script>
+    const video = document.getElementById('video');
+    const videoSrc = 'outputs/master.m3u8'; // your uploaded file
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(videoSrc);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // for Safari
+      video.src = videoSrc;
+      video.addEventListener('loadedmetadata', () => {
+        video.play();
+      });
+    } else {
+      document.body.innerHTML = '<p>Your browser does not support HLS.</p>';
+    }
+  </script>
+</body>
 </html>
