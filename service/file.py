@@ -2,7 +2,6 @@ import re
 import os
 import pathlib,subprocess
 from repository.minio import *
-from fastapi import UploadFile
 from defualt_render_list import *
 from repository.mongo import MongoRepository
 
@@ -59,10 +58,10 @@ class FileService:
     async def uploadFilesToMinio(self,renderedFiles: list):
         # await self.mongoRepository.update_status(self.fileName,"uploading in minio")
         # await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
-        # await self.package_to_cmaf(renderedFiles)
+        await self.package_to_cmaf(renderedFiles)
         # await self.removeLocalFiles(renderedFiles)
         # await self.mongoRepository.update_status(self.fileName,"done")
-        await self.package_hls_to_ts(renderedFiles)
+        # await self.package_hls_to_ts(renderedFiles)
 
     async def rendetionFiles(self,renderedPath:str):
         fileNameWithOutSuffix = self.fileName.removesuffix(".mp4")
@@ -138,38 +137,59 @@ class FileService:
         print(f"✅ Master playlist created at: {master_playlist}")
         return str(master_playlist)
 
+    async def package_to_cmaf(self, rendered_files: list):
+        job_dir = "/home/aka/Templates/project/rendered"
+        manifest_mpd = job_dir + "/manifest.mpd"
+        manifest_m3u8 = job_dir + "/master.m3u8"
 
-    # async def package_to_cmaf(self, rendered_files: list):
-    #     """
-    #     Package renditions to CMAF (DASH + HLS)
-    #     """
-    #     job_dir = pathlib.Path(self.renderedPath)
-    #     manifest_mpd = job_dir / "manifest.mpd"
-    #     manifest_m3u8 = job_dir / "master.m3u8"
+        input_tracks = []
+        for f in rendered_files:
+            height = f.replace("p.mp4", "")
+            input_tracks.append(
+                f"in={job_dir}/{f},stream=video,output={job_dir}/video_{height}p.mp4"
+            )
 
-    #     input_tracks = []
-    #     for f in rendered_files:
-    #         height = f.replace("p.mp4", "")
-    #         input_tracks.append(
-    #             f"in={job_dir}/{f},stream=video,output={job_dir}/video_{height}p.mp4"
-    #         )
+        input_tracks.append(
+            f"in={self.rootProjectPath},stream=audio,output={job_dir}/audio.mp4"
+        )
 
-    #     input_tracks.append(
-    #         f"in={self.rootProjectPath},stream=audio,output={job_dir}/audio.mp4"
-    #     )
-    #     cmd = [
-    #         "packager",
-    #         *input_tracks,
-    #         f"--mpd_output={manifest_mpd}",
-    #         f"--hls_master_playlist_output={manifest_m3u8}",
-    #         "--hls_base_url=/outputs/",
-    #         "--generate_static_live_mpd",
-    #     ]
+        # cmd = [
+        #     "packager",
+        #     # Video renditions
+        #     *[
+        #         f"in={job_dir}/{f},stream=video,init_segment={job_dir}/{f.replace('.mp4', '_init.mp4')},"
+        #         f"segment_template={job_dir}/{f.replace('.mp4', '_$Number$.m4s')}"
+        #         for f in rendered_files
+        #     ],
+        #     # Audio track
+        #     f"in={self.rootProjectPath},stream=audio,init_segment={job_dir}/audio_init.mp4,segment_template={job_dir}/audio_$Number$.m4s",
+        #     # Outputs
+        #     f"--mpd_output={manifest_mpd}",
+        #     f"--hls_master_playlist_output={manifest_m3u8}",
+        #     "--hls_base_url=/outputs/",
+        #     "--generate_static_mpd",                     # ✅ for VOD
+        #     "--enable_raw_key_encryption",
+        #     "--keys",
+        #     "label=:key_id=1234567890abcdef1234567890abcdef:key=abcdefabcdefabcdefabcdefabcdefab",
+        #     "--protection_scheme", "cenc"
+        # ]
 
-    #     print("Running:", " ".join(cmd))
-    #     self.run(cmd)
+        cmd = [
+            "packager",
+            *input_tracks,
+            f"--mpd_output={manifest_mpd}",
+            f"--hls_master_playlist_output={manifest_m3u8}",
+            "--hls_base_url=/outputs/",
+            "--generate_static_live_mpd",
+            "--enable_raw_key_encryption",
+            "--keys",
+            "label=:key_id=1234567890abcdef1234567890abcdef:key=abcdefabcdefabcdefabcdefabcdefab",
+            "--protection_scheme", "cenc"
+        ]
 
-    #     return str(manifest_mpd), str(manifest_m3u8)
+        print("Running:", " ".join(cmd))
+        self.run(cmd)
+        return str(manifest_mpd), str(manifest_m3u8)
     
     # async def package_hls_to_ts(self,rendered_files: list):
     #     """
@@ -197,6 +217,3 @@ class FileService:
     #         else:
     #             print("No resolution found in filename.")
     #     return str(out_playlist)
-    
-
-    

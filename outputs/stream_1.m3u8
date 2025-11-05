@@ -1,0 +1,23 @@
+#EXTM3U
+#EXT-X-VERSION:6
+## Generated with https://github.com/shaka-project/shaka-packager version v3.4.2-c819dea-release
+#EXT-X-TARGETDURATION:14
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-MAP:URI="/outputs/video_001SectionIntro1280p.mp4",BYTERANGE="1139@0"
+#EXT-X-KEY:METHOD=SAMPLE-AES-CTR,URI="data:text/plain;base64,EjRWeJCrze8SNFZ4kKvN7w==",KEYFORMAT="identity"
+#EXTINF:13.433,
+#EXT-X-BYTERANGE:8281214@1231
+/outputs/video_001SectionIntro1280p.mp4
+#EXTINF:8.333,
+#EXT-X-BYTERANGE:4695026
+/outputs/video_001SectionIntro1280p.mp4
+#EXTINF:6.067,
+#EXT-X-BYTERANGE:3276618
+/outputs/video_001SectionIntro1280p.mp4
+#EXTINF:4.333,
+#EXT-X-BYTERANGE:505112
+/outputs/video_001SectionIntro1280p.mp4
+#EXTINF:0.533,
+#EXT-X-BYTERANGE:45471
+/outputs/video_001SectionIntro1280p.mp4
+#EXT-X-ENDLIST
