@@ -1,96 +1,232 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Secure DASH + Widevine (Shaka Player)</title>
-  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.3.5/dist/shaka-player.ui.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shaka-player@4.3.5/dist/controls.min.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Universal Player (HLS + DASH + DRM)</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.10/shaka-player.compiled.js"></script>
   <style>
-    body { background:#0f172a; color:#f8fafc; font-family:system-ui; padding:20px; }
-    .player { max-width:800px; margin:auto; text-align:center; }
-    video { width:100%; border-radius:8px; background:#000; }
-    select, button { margin:10px 5px; padding:8px; border-radius:6px; border:1px solid #475569; background:#1e293b; color:#f1f5f9; }
-    button { background:#0284c7; border:none; cursor:pointer; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: system-ui, sans-serif;
+      padding: 30px;
+    }
+    video {
+      width: 80%;
+      max-width: 900px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px #0008;
+      margin-top: 20px;
+    }
+    select, input, button {
+      padding: 8px 12px;
+      background: #1e293b;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      margin: 6px;
+    }
+    option { background: #1e293b; }
   </style>
 </head>
 <body>
-  <div class="player">
-    <h2>Secure DASH + Widevine</h2>
-    <video id="video" class="shaka-video" controls playsinline></video>
-    <div>
-      <select id="quality"><option value="-1">Auto</option></select>
-      <button id="reload">Reload</button>
-    </div>
-  </div>
+  <h2>Universal Media Player (HLS / DASH / DRM)</h2>
+
+  <input type="text" id="sourceUrl" value="/outputs/manifest.mpd" placeholder="Enter .mpd or .m3u8 URL" size="50" />
+  <button id="loadBtn">Load</button><br>
+
+  <video id="video" controls autoplay></video><br>
+
+  <label for="quality">Resolution: </label>
+  <select id="quality"><option value="">Auto</option></select>
 
   <script>
     const video = document.getElementById('video');
     const qualitySelect = document.getElementById('quality');
-    const reloadBtn = document.getElementById('reload');
+    const sourceInput = document.getElementById('sourceUrl');
+    const loadBtn = document.getElementById('loadBtn');
+    let hls = null, shakaPlayer = null;
 
-    const MANIFEST = '/outputs/manifest.mpd';
-    const LICENSE_SERVER = 'http://localhost:8008/widevine'; // Change to your server
+    // DASH ClearKey DRM example
+    const CLEARKEY_ID = '1234567890abcdef1234567890abcdef';
+    const CLEARKEY_KEY = '8aae898fc21b6e2884514315d0336734';
 
-    let player, tracks = [];
+    loadBtn.addEventListener('click', () => {
+      const url = sourceInput.value.trim();
+      if (!url) return alert('Please enter a URL.');
+      loadSource(url);
+    });
 
-    async function init() {
-      const token = 'Bearer testtoken123'; // In prod: fetch from login API
+    async function loadSource(url) {
+      cleanupPlayers();
+      if (url.endsWith('.mpd')) {
+        await initShaka(url);
+      } else if (url.endsWith('.m3u8')) {
+        await initHls(url);
+      } else {
+        alert('Unsupported file. Use .mpd or .m3u8');
+      }
+    }
 
-      if (player) await player.destroy();
-      player = new shaka.Player(video);
+    function cleanupPlayers() {
+      if (hls) { hls.destroy(); hls = null; }
+      if (shakaPlayer) { shakaPlayer.destroy(); shakaPlayer = null; }
+      qualitySelect.innerHTML = '<option value="">Auto</option>';
+      video.removeAttribute('src');
+      video.load();
+    }
 
-      // Token for media & license
-      const net = player.getNetworkingEngine();
-      net.registerRequestFilter((type, req) => {
-        req.headers['Authorization'] = token;
+    // ---------- DASH ----------
+    async function initShaka(manifestUri) {
+      shakaPlayer = new shaka.Player(video);
+      window.player = shakaPlayer;
+
+      shakaPlayer.configure({
+        drm: { clearKeys: { [CLEARKEY_ID]: CLEARKEY_KEY } },
+        abr: { enabled: true }
       });
 
-      // DRM (use clearKeys for testing, replace with real server in prod)
-      player.configure({
-        drm: {
-          servers: { 'com.widevine.alpha': LICENSE_SERVER },
-          clearKeys: {
-            'MTIzNDU2Nzg5MGFiY2RlZjEyMzQ1Njc4OTBhYmNkZWY=': // key_id (hex → base64)
-            'YWJjZGVmYWJjZGVmYWJjZGVmYWJjZGVmYWJjZGVmYWJj'  // key (hex → base64)
-          }
+      await shakaPlayer.load(manifestUri);
+      console.log('Shaka: Video loaded.');
+
+      populateShakaQualities();
+
+      qualitySelect.addEventListener('change', () => {
+        const selectedId = qualitySelect.value;
+        if (!selectedId) {
+          shakaPlayer.configure({ abr: { enabled: true } });
+          console.log('Switched to Auto');
+          return;
+        }
+        const track = shakaPlayer.getVariantTracks().find(t => t.id == selectedId);
+        if (track) {
+          shakaPlayer.configure({ abr: { enabled: false } });
+          shakaPlayer.selectVariantTrack(track, true);
+          console.log(`Switched to ${track.height}p`);
         }
       });
+    }
 
-      // UI
-      new shaka.ui.Overlay(player, video.parentElement, video);
+    function populateShakaQualities() {
+      const tracks = shakaPlayer.getVariantTracks().filter(t => t.videoBandwidth);
+      const sorted = [...tracks].sort((a, b) => a.height - b.height);
 
-      try {
-        await player.load(MANIFEST);
-        populateQuality();
-        video.play();
-      } catch (e) {
-        console.error('Load error:', e);
+      qualitySelect.innerHTML = '<option value="">Auto</option>';
+      for (const t of sorted) {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.height || '?'}p (${Math.round(t.bandwidth / 1000)} kbps)`;
+        qualitySelect.appendChild(opt);
+      }
+
+      const active = sorted.find(t => t.active);
+      if (active) qualitySelect.value = active.id;
+    }
+
+    // ---------- HLS ----------
+    async function initHls(sourceUrl) {
+      if (Hls.isSupported()) {
+        hls = new Hls();
+        hls.loadSource(sourceUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+          const levels = data.levels || [];
+          populateHlsQualities(levels);
+
+          // Reflect current level in the dropdown
+          if (hls.currentLevel >= 0) qualitySelect.value = hls.currentLevel;
+
+          video.play().catch(e => console.warn("Play interrupted:", e));
+        });
+
+        // Debug: show what is really playing
+        hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+          const level = hls.levels[data.level];
+          console.log('HLS playing:', {
+            height: level.height,
+            width: level.width,
+            bitrate: level.bitrate,
+            codecs: level.codecs
+          });
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = sourceUrl;
+        video.addEventListener('loadedmetadata', () => video.play());
+      } else {
+        alert('HLS not supported by this browser.');
       }
     }
 
-    function populateQuality() {
-      tracks = player.getVariantTracks();
-      const heights = [...new Set(tracks.map(t => t.height))].sort((a,b)=>b-a);
-      qualitySelect.innerHTML = '<option value="-1">Auto</option>';
-      heights.forEach(h => {
-        const opt = new Option(`${h}p`, h);
+    // ----- FIXED QUALITY POPULATION -----
+    function populateHlsQualities(levels) {
+      qualitySelect.innerHTML = '<option value="">Auto</option>';
+
+      const sorted = [...levels].sort((a, b) => {
+        const ha = a.height || 0;
+        const hb = b.height || 0;
+        if (ha && hb) return ha - hb;
+        if (ha) return -1;
+        if (hb) return 1;
+        return a.bitrate - b.bitrate;
+      });
+
+      sorted.forEach((level, index) => {
+        // 1. Try level.height
+        let height = level.height;
+
+        // 2. If missing, try the RESOLUTION attribute in level.attrs
+        if (!height && level.attrs && level.attrs.RESOLUTION) {
+          const res = level.attrs.RESOLUTION.split('x');
+          height = parseInt(res[1], 10) || null;   // take the vertical part
+        }
+
+        // 3. Last-resort bitrate estimate (very rare)
+        if (!height) {
+          const bw = level.bitrate;
+          if (bw < 500_000) height = 240;
+          else if (bw < 1_000_000) height = 360;
+          else if (bw < 2_000_000) height = 480;
+          else if (bw < 4_000_000) height = 720;
+          else height = 1080;
+        }
+
+        const bitrateKbps = Math.round(level.bitrate / 1000);
+        const label = height ? `${height}p` : 'Unknown';
+
+        const opt = document.createElement('option');
+        opt.value = index;                     // zero-based
+        opt.textContent = `${label} (${bitrateKbps} kbps)`;
         qualitySelect.appendChild(opt);
       });
+
+      qualitySelect.onchange = () => {
+        const value = Number(qualitySelect.value);
+        if (isNaN(value)) {
+          hls.currentLevel = -1;               // Auto
+          console.log('HLS: Switched to Auto');
+        } else {
+          hls.currentLevel = value;
+          const selected = sorted[value];
+          const h = selected.height ||
+                    (selected.attrs && selected.attrs.RESOLUTION && selected.attrs.RESOLUTION.split('x')[1]) ||
+                    'Unknown';
+          console.log(`HLS: Switched to ${h}p (${Math.round(selected.bitrate/1000)} kbps)`);
+        }
+      };
     }
 
-    qualitySelect.onchange = () => {
-      const h = parseInt(qualitySelect.value);
-      if (h === -1) {
-        player.configure('abr.enabled', true);
-      } else {
-        player.configure('abr.enabled', false);
-        const track = tracks.find(t => t.height === h);
-        if (track) player.selectVariantTrack(track, true);
-      }
-    };
-
-    reloadBtn.onclick = init;
-    init();
+    // auto-load on start
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSource(sourceInput.value);
+    });
   </script>
 </body>
 </html>

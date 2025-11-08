@@ -1,18 +1,43 @@
 import re
 import os
+import secrets
+import hashlib
+import binascii
 import pathlib,subprocess
 from repository.minio import *
 from defualt_render_list import *
 from repository.mongo import MongoRepository
 
+def string_to_encryption_key(input_string: str, salt: bytes = None) -> str:
+    """
+    هر رشته‌ای رو به کلید ۱۶ بایتی (۳۲ کاراکتر هگز) تبدیل می‌کنه
+    """
+    if salt is None:
+        salt = secrets.token_bytes(16)  # هر بار salt جدید (امن‌تر)
+
+    # PBKDF2 با 100,000 دور (امن و قابل تنظیم)
+    key = hashlib.pbkdf2_hmac(
+        'sha256',                   # هش امن
+        input_string.encode('utf-8'),  # ورودی به بایت
+        salt,                       # salt
+        100000,                     # تعداد دور (هر چی بیشتر، امن‌تر ولی کندتر)
+        dklen=16                    # ۱۶ بایت = ۱۲۸ بیت
+    )
+    
+    # به هگز تبدیل کن
+    return binascii.hexlify(key).decode('ascii')
+
+
 class FileService:
-    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,rootProjectPath: str,renderedPath: str,fileName: str):
+    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,uploadedFilePath: str,renderedPath: str,fileName: str, outputPath: str,key: str):
         self.mongoRepository = mongoRepository
         self.minioRepository = minioRepository
-        self.rootProjectPath = rootProjectPath
+        self.uploadedFilePath = uploadedFilePath
         self.renderedPath = renderedPath
+        self.outPutPath = outputPath
         self.fileName = fileName
-    
+        self.key = key
+        
     def run(self,cmd, cwd=None):
         """Run subprocess command and raise error on failure"""
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=None)
@@ -28,7 +53,7 @@ class FileService:
     #     out_file = workdir + fileName + " " + f"{height}p.mp4"
     #     audio_bitrate_kbps = 128
     #     cmd = [
-    #         "ffmpeg" , "-y", "-i", str(self.rootProjectPath),
+    #         "ffmpeg" , "-y", "-i", str(self.uploadedFilePath),
     #         "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast",
     #         "-b:v", f"{bitrate}k",
     #         "-vf", f"scale=:w={width}:h={height}:force_original_aspect_ratio=decrease",
@@ -44,7 +69,7 @@ class FileService:
         out_file = workdir+f"{fileName}{height}p.mp4"  # بدون فاصله
         audio_bitrate_kbps = 128
         cmd = [
-            "ffmpeg", "-y", "-i", str(self.rootProjectPath),
+            "ffmpeg", "-y", "-i", str(self.uploadedFilePath),
             "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast",
             "-b:v", f"{bitrate}k",
             "-vf", f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease",
@@ -58,39 +83,39 @@ class FileService:
     async def uploadFilesToMinio(self,renderedFiles: list):
         # await self.mongoRepository.update_status(self.fileName,"uploading in minio")
         # await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
-        await self.package_to_cmaf(renderedFiles)
+        await self.create_dash_format(renderedFiles)
+        await self.create_hls_format(renderedFiles)
         # await self.removeLocalFiles(renderedFiles)
         # await self.mongoRepository.update_status(self.fileName,"done")
-        # await self.package_hls_to_ts(renderedFiles)
 
-    async def rendetionFiles(self,renderedPath:str):
+    async def rendetionFiles(self):
         fileNameWithOutSuffix = self.fileName.removesuffix(".mp4")
-        cmd = ["ffprobe", "-v" ,"error", "-select_streams" ,"v:0" ,"-show_entries", "stream=width,height" ,"-of" ,"csv=s=x:p=0", self.rootProjectPath]
+        cmd = ["ffprobe", "-v" ,"error", "-select_streams" ,"v:0" ,"-show_entries", "stream=width,height" ,"-of" ,"csv=s=x:p=0", self.uploadedFilePath]
         videoResolution = self.run(cmd=cmd)
         outputfiles = []
         await self.mongoRepository.update_status(self.fileName,"rendering")
         for rosoulation in defualtRenderList:
             if rosoulation.get("width") <= int(videoResolution.split("x")[0]):
-                outfile = await self.transcode_renditions(height=rosoulation.get("height"),width=rosoulation.get("width"),bitrate=rosoulation.get("video_bitrate_kbps"),workdir=renderedPath,fileName=fileNameWithOutSuffix)
+                outfile = await self.transcode_renditions(height=rosoulation.get("height"),width=rosoulation.get("width"),bitrate=rosoulation.get("video_bitrate_kbps"),workdir=self.renderedPath,fileName=fileNameWithOutSuffix)
                 outputfiles.append(outfile)
         return outputfiles
     
     async def removeLocalFiles(self,renderedFiles: list):
         # Remove first uploaded File that gave from enduser
-        cmd = ["rm",self.rootProjectPath]
+        cmd = ["rm",self.uploadedFilePath]
         self.run(cmd)
         # Remove Rendered Files
         for f in renderedFiles:
             cmd = ["rm",self.renderedPath+f]
             self.run(cmd)
 
-    async def package_hls_to_ts(self, rendered_files: list):
+    async def create_hls_format(self, rendered_files: list):
         """
         Package videos into HLS variants and create a master playlist with all resolutions.
         """
         output_dir = pathlib.Path("/home/aka/Templates/project/outputs")
         output_dir.mkdir(parents=True, exist_ok=True)
-        master_playlist = output_dir / "master.m3u8"
+        master_playlist = self.outPutPath + "master.m3u8"
 
         variant_playlists = []
 
@@ -102,11 +127,11 @@ class FileService:
                 print("Resolution:", f, resolution)
 
                 # Example: segment_720p_%03d.ts and 720p.m3u8
-                variant_playlist = output_dir / f"{resolution}.m3u8"
-                segment_pattern = output_dir / f"segment_{resolution}_%03d.ts"
+                variant_playlist = output_dir / f"{name}.m3u8"
+                segment_pattern = output_dir / f"{name}_%03d.ts"
 
                 cmd = [
-                    "ffmpeg", "-i", f'/home/aka/Templates/project/rendered/{f}',
+                    "ffmpeg", "-i", f'{self.renderedPath}{f}',
                     "-c:v", "libx264", "-preset", "veryfast",
                     "-c:a", "aac", "-f", "hls",
                     "-hls_time", "6",
@@ -137,83 +162,31 @@ class FileService:
         print(f"✅ Master playlist created at: {master_playlist}")
         return str(master_playlist)
 
-    async def package_to_cmaf(self, rendered_files: list):
-        job_dir = "/home/aka/Templates/project/rendered"
-        manifest_mpd = job_dir + "/manifest.mpd"
-        manifest_m3u8 = job_dir + "/master.m3u8"
-
+    async def create_dash_format(self, rendered_files: list):
+        #output_dir = pathlib.Path("/home/aka/Templates/project/outputs")
+        manifest_mpd = self.outPutPath + "manifest.mpd"
         input_tracks = []
         for f in rendered_files:
             height = f.replace("p.mp4", "")
             input_tracks.append(
-                f"in={job_dir}/{f},stream=video,output={job_dir}/video_{height}p.mp4"
+                f"in={self.renderedPath}/{f},stream=video,output={self.outPutPath}video_{height}p.mp4"
             )
-
         input_tracks.append(
-            f"in={self.rootProjectPath},stream=audio,output={job_dir}/audio.mp4"
+            f"in={self.uploadedFilePath},stream=audio,output={self.outPutPath}audio.mp4"
         )
-
-        # cmd = [
-        #     "packager",
-        #     # Video renditions
-        #     *[
-        #         f"in={job_dir}/{f},stream=video,init_segment={job_dir}/{f.replace('.mp4', '_init.mp4')},"
-        #         f"segment_template={job_dir}/{f.replace('.mp4', '_$Number$.m4s')}"
-        #         for f in rendered_files
-        #     ],
-        #     # Audio track
-        #     f"in={self.rootProjectPath},stream=audio,init_segment={job_dir}/audio_init.mp4,segment_template={job_dir}/audio_$Number$.m4s",
-        #     # Outputs
-        #     f"--mpd_output={manifest_mpd}",
-        #     f"--hls_master_playlist_output={manifest_m3u8}",
-        #     "--hls_base_url=/outputs/",
-        #     "--generate_static_mpd",                     # ✅ for VOD
-        #     "--enable_raw_key_encryption",
-        #     "--keys",
-        #     "label=:key_id=1234567890abcdef1234567890abcdef:key=abcdefabcdefabcdefabcdefabcdefab",
-        #     "--protection_scheme", "cenc"
-        # ]
-
+        hashhKey = string_to_encryption_key(self.key)
+        print("keyyyyyyyyy",hashhKey)
         cmd = [
             "packager",
             *input_tracks,
             f"--mpd_output={manifest_mpd}",
-            f"--hls_master_playlist_output={manifest_m3u8}",
-            "--hls_base_url=/outputs/",
+            f"--hls_base_url={self.outPutPath}",
             "--generate_static_live_mpd",
             "--enable_raw_key_encryption",
             "--keys",
-            "label=:key_id=1234567890abcdef1234567890abcdef:key=abcdefabcdefabcdefabcdefabcdefab",
+            f"label=:key_id=1234567890abcdef1234567890abcdef:key={hashhKey}",
             "--protection_scheme", "cenc"
         ]
-
         print("Running:", " ".join(cmd))
         self.run(cmd)
-        return str(manifest_mpd), str(manifest_m3u8)
-    
-    # async def package_hls_to_ts(self,rendered_files: list):
-    #     """
-    #     Package video into traditional HLS with .ts segments.
-    #     """
-    #     #job_dir = pathlib.Path(self.renderedPath)
-    #     for f in rendered_files:
-    #         name, ext = os.path.splitext(f)
-    #         match = re.match(r"^(.*?)(\d{3,4}p)$", name)
-    #         if match:
-    #             resolution = match.group(2)
-    #             print("Resolution:",f, resolution)
-    #             out_playlist = "/home/aka/Templates/project/outputs/master.m3u8"
-    #             segment_pattern = f"/home/aka/Templates/project/outputs/segment_{resolution}_%03d.ts"
-    #             cmd = [
-    #                 "ffmpeg", "-i", f'/home/aka/Templates/project/rendered/{f}',
-    #                 "-c:v", "libx264", "-preset", "veryfast",
-    #                 "-c:a", "aac", "-f", "hls",
-    #                 "-hls_time", "6",
-    #                 "-hls_playlist_type", "vod",
-    #                 "-hls_segment_filename", str(segment_pattern),
-    #                 str(out_playlist)
-    #             ]
-    #             self.run(cmd)
-    #         else:
-    #             print("No resolution found in filename.")
-    #     return str(out_playlist)
+        return str(manifest_mpd)

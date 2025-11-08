@@ -11,6 +11,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 app.mount("/outputs", StaticFiles(directory="/home/aka/Templates/project/outputs"), name="outputs")
 app.include_router(router)
