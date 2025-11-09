@@ -31,4 +31,4 @@ class MinIORepository:
                 data = io.BytesIO(b"")
                 self.connection.put_object(self.bucket, self.directory, data, 0)
             else:
-                self.connection.fput_object(self.bucket,object_name=self.directory+o,file_path=filesPath+o)
+                self.connection.fput_object(self.bucket,object_name=o,file_path=filesPath+o)

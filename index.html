@@ -54,8 +54,8 @@
     let hls = null, shakaPlayer = null;
 
     // DASH ClearKey DRM example
-    const CLEARKEY_ID = '1234567890abcdef1234567890abcdef';
-    const CLEARKEY_KEY = '8aae898fc21b6e2884514315d0336734';
+    const KEY_ID = '740b297392b58353acca01f5302b59f9';
+    const KEY = 'a0ef87b5ba153e3d22c2e204710235a4';
 
     loadBtn.addEventListener('click', () => {
       const url = sourceInput.value.trim();
@@ -88,7 +88,7 @@
       window.player = shakaPlayer;
 
       shakaPlayer.configure({
-        drm: { clearKeys: { [CLEARKEY_ID]: CLEARKEY_KEY } },
+        drm: { clearKeys: { [KEY_ID]: KEY } },
         abr: { enabled: true }
       });
 

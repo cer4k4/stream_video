@@ -1,43 +1,22 @@
 import re
 import os
-import secrets
-import hashlib
-import binascii
 import pathlib,subprocess
 from repository.minio import *
 from defualt_render_list import *
 from repository.mongo import MongoRepository
 
-def string_to_encryption_key(input_string: str, salt: bytes = None) -> str:
-    """
-    هر رشته‌ای رو به کلید ۱۶ بایتی (۳۲ کاراکتر هگز) تبدیل می‌کنه
-    """
-    if salt is None:
-        salt = secrets.token_bytes(16)  # هر بار salt جدید (امن‌تر)
-
-    # PBKDF2 با 100,000 دور (امن و قابل تنظیم)
-    key = hashlib.pbkdf2_hmac(
-        'sha256',                   # هش امن
-        input_string.encode('utf-8'),  # ورودی به بایت
-        salt,                       # salt
-        100000,                     # تعداد دور (هر چی بیشتر، امن‌تر ولی کندتر)
-        dklen=16                    # ۱۶ بایت = ۱۲۸ بیت
-    )
-    
-    # به هگز تبدیل کن
-    return binascii.hexlify(key).decode('ascii')
-
 
 class FileService:
-    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,uploadedFilePath: str,renderedPath: str,fileName: str, outputPath: str,key: str):
+    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,uploadedFilePath: str,renderedPath: str,fileName: str, outputPath: str,drm: dict):
+        self.key = drm.get("key_id")
+        self.key_id = drm.get("key")
         self.mongoRepository = mongoRepository
         self.minioRepository = minioRepository
         self.uploadedFilePath = uploadedFilePath
         self.renderedPath = renderedPath
         self.outPutPath = outputPath
         self.fileName = fileName
-        self.key = key
-        
+
     def run(self,cmd, cwd=None):
         """Run subprocess command and raise error on failure"""
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=None)
@@ -82,10 +61,12 @@ class FileService:
 
     async def uploadFilesToMinio(self,renderedFiles: list):
         # await self.mongoRepository.update_status(self.fileName,"uploading in minio")
-        # await self.minioRepository.uploadFiles(renderedFiles,self.renderedPath)
         await self.create_dash_format(renderedFiles)
         await self.create_hls_format(renderedFiles)
-        # await self.removeLocalFiles(renderedFiles)
+        outputfiles = self.list_files_in_directory()
+        await self.minioRepository.uploadFiles(outputfiles,self.outPutPath)
+        await self.removeLocalFiles(renderedFiles,self.renderedPath)
+        await self.removeLocalFiles(outputfiles,self.outPutPath)
         # await self.mongoRepository.update_status(self.fileName,"done")
 
     async def rendetionFiles(self):
@@ -100,13 +81,9 @@ class FileService:
                 outputfiles.append(outfile)
         return outputfiles
     
-    async def removeLocalFiles(self,renderedFiles: list):
-        # Remove first uploaded File that gave from enduser
-        cmd = ["rm",self.uploadedFilePath]
-        self.run(cmd)
-        # Remove Rendered Files
+    async def removeLocalFiles(self,renderedFiles: list,Path:str):
         for f in renderedFiles:
-            cmd = ["rm",self.renderedPath+f]
+            cmd = ["rm",Path+f]
             self.run(cmd)
 
     async def create_hls_format(self, rendered_files: list):
@@ -118,13 +95,13 @@ class FileService:
         master_playlist = self.outPutPath + "master.m3u8"
 
         variant_playlists = []
-
         for f in rendered_files:
             name, ext = os.path.splitext(f)
             match = re.match(r"^(.*?)(\d{3,4}p)$", name)
+            #nameOfChuncksAndMasters.append(match)
             if match:
                 resolution = match.group(2)
-                print("Resolution:", f, resolution)
+                #print("Resolution:", f, resolution)
 
                 # Example: segment_720p_%03d.ts and 720p.m3u8
                 variant_playlist = output_dir / f"{name}.m3u8"
@@ -159,8 +136,8 @@ class FileService:
                 m3u8.write(f"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},RESOLUTION={res}\n")
                 m3u8.write(f"{playlist.name}\n")
 
-        print(f"✅ Master playlist created at: {master_playlist}")
-        return str(master_playlist)
+        #print(f"✅ Master playlist created at: {master_playlist}")
+        return variant_playlists
 
     async def create_dash_format(self, rendered_files: list):
         #output_dir = pathlib.Path("/home/aka/Templates/project/outputs")
@@ -174,8 +151,6 @@ class FileService:
         input_tracks.append(
             f"in={self.uploadedFilePath},stream=audio,output={self.outPutPath}audio.mp4"
         )
-        hashhKey = string_to_encryption_key(self.key)
-        print("keyyyyyyyyy",hashhKey)
         cmd = [
             "packager",
             *input_tracks,
@@ -184,9 +159,21 @@ class FileService:
             "--generate_static_live_mpd",
             "--enable_raw_key_encryption",
             "--keys",
-            f"label=:key_id=1234567890abcdef1234567890abcdef:key={hashhKey}",
+            f"label=:key_id={self.key_id}:key={self.key}",
             "--protection_scheme", "cenc"
         ]
-        print("Running:", " ".join(cmd))
+        #print("Running:", " ".join(cmd))
         self.run(cmd)
         return str(manifest_mpd)
+
+    def list_files_in_directory(self) -> list:
+        try:
+            # List all files in the directory (exclude subdirectories)
+            files = [f for f in os.listdir(self.outPutPath) if os.path.isfile(os.path.join(self.outPutPath, f))]
+            return files
+        except FileNotFoundError:
+            print(f"Error: The directory '{self.outPutPath}' was not found.")
+            return []
+        except PermissionError:
+            print(f"Error: Permission denied for directory '{self.outPutPath}'.")
+            return []

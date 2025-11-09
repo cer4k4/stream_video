@@ -12,4 +12,5 @@ app.add_middleware(
 )
 
 app.mount("/outputs", StaticFiles(directory="/home/aka/Templates/project/outputs"), name="outputs")
+app.mount("/rendered", StaticFiles(directory="/home/aka/Templates/project/rendered"), name="rendered")
 app.include_router(router)
