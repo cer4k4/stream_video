@@ -177,3 +177,7 @@ class FileService:
         except PermissionError:
             print(f"Error: Permission denied for directory '{self.outPutPath}'.")
             return []
+        
+    async def get_path_of_files(self,fileName: str):
+        return await self.minioRepository.get_file_by_file_name(filename=fileName)
+        

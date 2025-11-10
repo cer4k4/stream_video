@@ -1,8 +1,8 @@
 import io
 from minio import Minio
+from datetime import timedelta
 from config.config import Config
 from defualt_render_list import *
-
 
 class MinIORepository:
     def __init__(self,bucket:str,directory:str):
@@ -32,3 +32,26 @@ class MinIORepository:
                 self.connection.put_object(self.bucket, self.directory, data, 0)
             else:
                 self.connection.fput_object(self.bucket,object_name=o,file_path=filesPath+o)
+
+    async def get_file_by_file_name(self,filename: str):
+        # اگر پوشه ندارید، فقط نام فایل را استفاده کنید
+        object_name = filename
+
+        # بررسی وجود فایل (اختیاری)
+        found = any(
+            obj.object_name == object_name
+            for obj in self.connection.list_objects(self.bucket, recursive=True)
+        )
+
+        if not found:
+            print(f"⚠️ File not found in MinIO: {object_name}")
+            return None
+
+        # ایجاد لینک presigned با ۷ روز اعتبار
+        url = self.connection.presigned_get_object(
+            bucket_name=self.bucket,
+            object_name=object_name,
+            expires=timedelta(days=7)
+        )
+        print(f"✅ Presigned URL: {url}")
+        return url

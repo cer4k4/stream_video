@@ -5,7 +5,7 @@ ToDo:
     - error handling & status Response
 Problem:
     - think about .ts files how can i handle every users couldn't download
-___________________________________________
+___________________________________________________________________________________________________________
 Done:
     - remove files from root project when all videos uploaded in minio
     - add encode with DASH & HLS for DRM
