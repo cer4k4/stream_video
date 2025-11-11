@@ -7,9 +7,7 @@ from repository.mongo import MongoRepository
 
 
 class FileService:
-    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,uploadedFilePath: str,renderedPath: str,fileName: str, outputPath: str,drm: dict):
-        self.key = drm.get("key_id")
-        self.key_id = drm.get("key")
+    def __init__(self,mongoRepository: MongoRepository,minioRepository: MinIORepository,uploadedFilePath: str,renderedPath: str,fileName: str, outputPath: str):
         self.mongoRepository = mongoRepository
         self.minioRepository = minioRepository
         self.uploadedFilePath = uploadedFilePath
@@ -27,22 +25,6 @@ class FileService:
             print(NameError)
         return proc.stdout
 
-    # async def transcode_renditions(self, height:str , width:str, bitrate:str ,workdir: pathlib.Path,fileName:str):
-    #     """Use ffmpeg to generate renditions (fMP4-ready)"""
-    #     out_file = workdir + fileName + " " + f"{height}p.mp4"
-    #     audio_bitrate_kbps = 128
-    #     cmd = [
-    #         "ffmpeg" , "-y", "-i", str(self.uploadedFilePath),
-    #         "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast",
-    #         "-b:v", f"{bitrate}k",
-    #         "-vf", f"scale=:w={width}:h={height}:force_original_aspect_ratio=decrease",
-    #         "-c:a", "aac", "-b:a", f"{audio_bitrate_kbps}k",
-    #         "-movflags", "+faststart",
-    #         str(out_file)
-    #     ]
-    #     self.run(cmd=cmd)
-    #     return fileName+" "+f"{height}p.mp4"
-
     async def transcode_renditions(self, height: str, width: str, bitrate: str, workdir: pathlib.Path, fileName: str):
         """Use ffmpeg to generate fMP4 renditions ready for DASH/HLS"""
         out_file = workdir+f"{fileName}{height}p.mp4"  # بدون فاصله
@@ -59,16 +41,6 @@ class FileService:
         self.run(cmd)
         return f"{fileName}{height}p.mp4"
 
-    async def uploadFilesToMinio(self,renderedFiles: list):
-        # await self.mongoRepository.update_status(self.fileName,"uploading in minio")
-        await self.create_dash_format(renderedFiles)
-        await self.create_hls_format(renderedFiles)
-        outputfiles = self.list_files_in_directory()
-        await self.minioRepository.uploadFiles(outputfiles,self.outPutPath)
-        await self.removeLocalFiles(renderedFiles,self.renderedPath)
-        await self.removeLocalFiles(outputfiles,self.outPutPath)
-        # await self.mongoRepository.update_status(self.fileName,"done")
-
     async def rendetionFiles(self):
         fileNameWithOutSuffix = self.fileName.removesuffix(".mp4")
         cmd = ["ffprobe", "-v" ,"error", "-select_streams" ,"v:0" ,"-show_entries", "stream=width,height" ,"-of" ,"csv=s=x:p=0", self.uploadedFilePath]
@@ -79,7 +51,7 @@ class FileService:
             if rosoulation.get("width") <= int(videoResolution.split("x")[0]):
                 outfile = await self.transcode_renditions(height=rosoulation.get("height"),width=rosoulation.get("width"),bitrate=rosoulation.get("video_bitrate_kbps"),workdir=self.renderedPath,fileName=fileNameWithOutSuffix)
                 outputfiles.append(outfile)
-        return outputfiles
+        return  outputfiles
     
     async def removeLocalFiles(self,renderedFiles: list,Path:str):
         for f in renderedFiles:
@@ -98,7 +70,6 @@ class FileService:
         for f in rendered_files:
             name, ext = os.path.splitext(f)
             match = re.match(r"^(.*?)(\d{3,4}p)$", name)
-            #nameOfChuncksAndMasters.append(match)
             if match:
                 resolution = match.group(2)
                 #print("Resolution:", f, resolution)
@@ -139,7 +110,7 @@ class FileService:
         #print(f"✅ Master playlist created at: {master_playlist}")
         return variant_playlists
 
-    async def create_dash_format(self, rendered_files: list):
+    async def create_dash_format(self, rendered_files: list,drm: dict):
         #output_dir = pathlib.Path("/home/aka/Templates/project/outputs")
         manifest_mpd = self.outPutPath + "manifest.mpd"
         input_tracks = []
@@ -159,10 +130,9 @@ class FileService:
             "--generate_static_live_mpd",
             "--enable_raw_key_encryption",
             "--keys",
-            f"label=:key_id={self.key_id}:key={self.key}",
+            f"label=:key_id={drm.get("key_id")}:key={drm.get("key")}",
             "--protection_scheme", "cenc"
         ]
-        #print("Running:", " ".join(cmd))
         self.run(cmd)
         return str(manifest_mpd)
 
@@ -177,7 +147,4 @@ class FileService:
         except PermissionError:
             print(f"Error: Permission denied for directory '{self.outPutPath}'.")
             return []
-        
-    async def get_path_of_files(self,fileName: str):
-        return await self.minioRepository.get_file_by_file_name(filename=fileName)
         

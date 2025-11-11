@@ -37,8 +37,13 @@
 </head>
 <body>
   <h2>Universal Media Player (HLS / DASH / DRM)</h2>
-
-  <input type="text" id="sourceUrl" value="/outputs/manifest.mpd" placeholder="Enter .mpd or .m3u8 URL" size="50" />
+    <!-- 🔽 Format selector -->
+  <label for="formatSelect">Format:</label>
+  <select id="formatSelect">
+    <option value="hls">HLS (.m3u8)</option>
+    <option value="dash">DASH (.mpd)</option>
+  </select>
+  <input type="text" id="sourceUrl" value="http://127.0.0.1:8000/stream/master.m3u8" />
   <button id="loadBtn">Load</button><br>
 
   <video id="video" controls autoplay></video><br>
@@ -54,8 +59,17 @@
     let hls = null, shakaPlayer = null;
 
     // DASH ClearKey DRM example
-    const KEY = '4d8b0e93a150133b0263350a7c0f878a';
-    const KEY_ID = '496f2d8491fb8aed07394d928c3e3d8b';
+    const KEY_ID = '6bf1c87015adbd2669b36592c4757809';
+    const KEY = '34da6b634de86e971448b525fb76a2dd';
+    // 🔁 Whenever format changes, auto-update the URL box
+    formatSelect.addEventListener('change', () => {
+      const format = formatSelect.value;
+      const url =
+        format === 'hls'
+          ? 'http://127.0.0.1:8000/stream/master.m3u8'
+          : 'http://127.0.0.1:8000/stream/manifest.mpd';
+      sourceInput.value = url;
+    });
 
     loadBtn.addEventListener('click', () => {
       const url = sourceInput.value.trim();

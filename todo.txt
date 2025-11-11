@@ -1,5 +1,5 @@
 ToDo:
-    - download files from minio
+    - refactor and clean code & structure
     - handle a good solution for drm ( i think PKI method is good for project before sync with mr.salehi )
     - think about rendering videos (process and effeshient algoritm)
     - error handling & status Response
@@ -7,6 +7,7 @@ Problem:
     - think about .ts files how can i handle every users couldn't download
 ___________________________________________________________________________________________________________
 Done:
+    - download files from minio
     - remove files from root project when all videos uploaded in minio
     - add encode with DASH & HLS for DRM
     - fix remove videos from rendered
