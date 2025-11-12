@@ -1,8 +1,9 @@
-fastapi
-uvicorn[standard]
-python-multipart
-pydantic
-boto3
+jwt
 minio
-python-ffmpeg
+boto3
 motor
+fastapi
+pydantic
+python-ffmpeg
+python-multipart
+uvicorn[standard]

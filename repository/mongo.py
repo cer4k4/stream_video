@@ -8,9 +8,9 @@ class MongoRepository:
         self.db = self.client[cfg.mongoDatabase]
         self.collection = self.db["upload_status"]
 
-    async def insert_status(self, filename: str, status: str):
+    async def insert_status(self, filename: str, status: str,drm: dict):
         """Insert a new upload record"""
-        doc = {"filename": filename, "status": status}
+        doc = {"filename": filename, "status": status,"password":drm.get('key'),"key_uuid":drm.get('key_id')}
         result = await self.collection.insert_one(doc)
         return str(result.inserted_id)
 

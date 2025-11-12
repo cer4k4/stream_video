@@ -1,20 +1,47 @@
-import os
-import base64
+import jwt
 import secrets
 import asyncio
 import hashlib
 import binascii
-from minio import Minio
-from Crypto.Cipher import AES
+from typing import Dict, Any
 from config.config import Config
 from service.file import FileService
-from Crypto.Util.Padding import pad, unpad
+from datetime import datetime, timedelta
 from repository.minio import MinIORepository
 from repository.mongo import MongoRepository
 from fastapi.responses import StreamingResponse
-from fastapi import APIRouter, UploadFile, status, responses, Request, HTTPException
+from fastapi import APIRouter, UploadFile, status, responses, Request, HTTPException,Form
 
 router = APIRouter()
+
+# ⚙️ Secret key (use a long random string in production!)
+SECRET_KEY = "your_secret_key_here"
+ALGORITHM = "HS256"
+
+def create_jwt_token(data: Dict[str, Any], expires_delta: timedelta = timedelta(minutes=15)) -> str:
+    """
+    Create a JWT token with payload and expiration.
+    """
+    payload = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    payload.update({"exp": expire})
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return token
+
+
+def verify_jwt_token(token: str) -> Dict[str, Any]:
+    """
+    Verify and decode JWT token. Raises jwt.ExpiredSignatureError or jwt.InvalidTokenError if invalid.
+    """
+    try:
+        decoded = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Token has expired")
+    except jwt.InvalidTokenError:
+        raise ValueError("Invalid token")
+
+
 def make_hash(input_string: str, salt: bytes = b"fixed_salt_1234") -> str:
     """
     تولید هش امن از رشته ورودی.
@@ -35,32 +62,38 @@ async def saveFile(fileName: str,filePath: str,drm: dict):
     mongoRepo = MongoRepository()
     minioRepo = MinIORepository(bucket=cfg.minioBucketName,directory=cfg.minioDirectory)
     service = FileService(mongoRepository=mongoRepo,minioRepository=minioRepo,fileName=fileName,uploadedFilePath=filePath,renderedPath=cfg.renderedPath,outputPath=cfg.outputPath)
+    await mongoRepo.insert_status(fileName,"rendering",drm)
     renderedFiles = await service.rendetionFiles()
+    await mongoRepo.update_status(fileName,"creating DASH format")
     await service.create_dash_format(renderedFiles,drm)
+    await mongoRepo.update_status(fileName,"creating HLS format")
     await service.create_hls_format(renderedFiles)
     outputfiles = service.list_files_in_directory()
+    await mongoRepo.update_status(fileName,"uploading to minio")
     await service.minioRepository.uploadFiles(outputfiles,cfg.outputPath)
     await service.removeLocalFiles(renderedFiles,cfg.renderedPath)
     await service.removeLocalFiles(outputfiles,cfg.outputPath)
+    await mongoRepo.update_status(fileName,"done")
 
 @router.post("/uploadfile/")
-async def create_upload_file(file: UploadFile,key: str):
+async def create_upload_file(file: UploadFile,password: str):
     cfg = Config()
     file_path = cfg.outputPath + file.filename.replace(" ","")
     with open(file_path, "wb") as fi:
         fi.write(await file.read())
     drm = dict()
-    drm = {'key': make_hash(key),'key_id': secrets.token_hex(16)}
+    drm = {'key': make_hash(password),'key_id': secrets.token_hex(16)}
     asyncio.create_task(saveFile(fileName=file.filename.replace(" ",""),filePath=file_path,drm=drm))
     return responses.JSONResponse(content={"key_id":drm.get("key_id"),"key":drm.get("key")},status_code=status.HTTP_202_ACCEPTED)
 
-# key_id = 6bf1c87015adbd2669b36592c4757809
-# key = 34da6b634de86e971448b525fb76a2dd
-
-@router.post("/checkPassword/:key")
-async def check_password(key: str):
-    print(make_hash(key))
-    return responses.JSONResponse(content={"ok":"ok"},status_code=status.HTTP_202_ACCEPTED)
+@router.post("/checkPassword/")
+async def check_password(filename: str=Form(...),password: str=Form(...)):
+    mongoRepo = MongoRepository()
+    doc = await mongoRepo.get_status(filename)
+    if dict(doc).get('password') != make_hash(password):
+        return responses.JSONResponse(content={"message": "you don't have permission to this video"}, status_code=403)
+    #jwt = create_jwt_token({"key_id": dict(doc).get('key_uuid'),"key": dict(doc).get('password')})
+    return responses.JSONResponse(content={"key_id": dict(doc).get('key_uuid'),"key": dict(doc).get('password')},status_code=200)
 
 # @router.get("/stream/{filename:path}")
 # async def stream_from_minio(filename: str, request: Request):
@@ -116,3 +149,4 @@ async def stream_from_minio(filename: str, request: Request):
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail="Internal server error")
+    

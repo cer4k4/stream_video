@@ -44,8 +44,10 @@
     <option value="dash">DASH (.mpd)</option>
   </select>
   <input type="text" id="sourceUrl" value="http://127.0.0.1:8000/stream/master.m3u8" />
+  <input id="filename" placeholder="File name (e.g. master.m3u8)" value="master.m3u8" />
+  <input id="password" type="password" placeholder="Enter password" />
   <button id="loadBtn">Load</button><br>
-
+  <button id="unlockBtn">Unlock</button><br>
   <video id="video" controls autoplay></video><br>
 
   <label for="quality">Resolution: </label>
@@ -54,14 +56,36 @@
   <script>
     const video = document.getElementById('video');
     const qualitySelect = document.getElementById('quality');
+    const filenameInput = document.getElementById("filename");
+    const passwordInput = document.getElementById("password");
     const sourceInput = document.getElementById('sourceUrl');
+    const unlockBtn = document.getElementById("unlockBtn");
     const loadBtn = document.getElementById('loadBtn');
     let hls = null, shakaPlayer = null;
+    // STEP 1: check password -> get key and key_id
+    unlockBtn.addEventListener("click", async () => {
+      const filename = filenameInput.value.trim();
+      const password = passwordInput.value.trim();
+      if (!filename || !password) return alert("Enter filename and password");
 
-    // DASH ClearKey DRM example
-    const KEY_ID = '6bf1c87015adbd2669b36592c4757809';
-    const KEY = '34da6b634de86e971448b525fb76a2dd';
-    // 🔁 Whenever format changes, auto-update the URL box
+      const res = await fetch("http://127.0.0.1:8000/checkPassword/", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ filename, password })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.message || "Access denied");
+        return;
+      }
+
+      const data = await res.json();
+      KEY_ID = data.key_id;
+      KEY = data.key;
+
+      alert("Access granted ✅");
+    });
+
     formatSelect.addEventListener('change', () => {
       const format = formatSelect.value;
       const url =
