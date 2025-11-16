@@ -8,3 +8,20 @@ defualtRenderList = [
     {"width": 3840, "height": 2160, "video_bitrate_kbps": 14000},   # 2160p (4K UHD)
     {"width": 7680, "height": 4320, "video_bitrate_kbps": 35000},   # 4320p (8K UHD)
 ]
+
+
+formats = [
+    "mp4",
+    "mov",
+    "mkv",
+    "avi",
+    "3gp",
+    "wmv",
+    "flv",
+    "m4a",
+    "3g2",
+    "mj2",
+    "asf",
+    "webm",
+    "matroska"
+]

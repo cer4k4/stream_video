@@ -6,7 +6,7 @@ from minio import Minio
 from minio.error import S3Error
 from datetime import timedelta
 from config.config import Config
-from defualt_render_list import *
+from enum import *
 
 logger = logging.getLogger(__name__)
 

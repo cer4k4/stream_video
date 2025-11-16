@@ -3,14 +3,15 @@ import secrets
 import asyncio
 import hashlib
 import binascii
+from bson import ObjectId
 from typing import Dict, Any
 from config.config import Config
 from service.file import FileService
 from datetime import datetime, timedelta
 from repository.minio import MinIORepository
 from repository.mongo import MongoRepository
-from fastapi.responses import StreamingResponse
-from fastapi import APIRouter, UploadFile, status, responses, Request, HTTPException,Form
+from fastapi.responses import StreamingResponse,JSONResponse
+from fastapi import APIRouter, UploadFile, status, responses, Response, Request,HTTPException,Form
 
 router = APIRouter()
 
@@ -62,6 +63,9 @@ async def saveFile(fileName: str,filePath: str,drm: dict):
     mongoRepo = MongoRepository()
     minioRepo = MinIORepository(bucket=cfg.minioBucketName,directory=cfg.minioDirectory)
     service = FileService(mongoRepository=mongoRepo,minioRepository=minioRepo,fileName=fileName,uploadedFilePath=filePath,renderedPath=cfg.renderedPath,outputPath=cfg.outputPath)
+    format = service.getFileNameFormat()
+    if format != ".mp4":
+        service.convert_to_mp4(filePath,cfg.outputPath)
     await mongoRepo.insert_status(fileName,"rendering",drm)
     renderedFiles = await service.rendetionFiles()
     await mongoRepo.update_status(fileName,"creating DASH format")
@@ -78,23 +82,48 @@ async def saveFile(fileName: str,filePath: str,drm: dict):
 @router.post("/uploadfile/")
 async def create_upload_file(file: UploadFile,password: str):
     cfg = Config()
+    mongoRepo = MongoRepository()
+    minioRepo = MinIORepository(bucket=cfg.minioBucketName,directory=cfg.minioDirectory)
     file_path = cfg.outputPath + file.filename.replace(" ","")
     with open(file_path, "wb") as fi:
         fi.write(await file.read())
-    drm = dict()
-    drm = {'key': make_hash(password),'key_id': secrets.token_hex(16)}
-    asyncio.create_task(saveFile(fileName=file.filename.replace(" ",""),filePath=file_path,drm=drm))
-    return responses.JSONResponse(content={"key_id":drm.get("key_id"),"key":drm.get("key")},status_code=status.HTTP_202_ACCEPTED)
+    service = FileService(mongoRepository=mongoRepo,minioRepository=minioRepo,fileName=file.filename,uploadedFilePath=file_path,renderedPath=cfg.renderedPath,outputPath=cfg.outputPath)
+    formatExist = service.checkFileNameFormat()
+    if formatExist:
+        drm = dict()
+        drm = {'key': make_hash(password),'key_id': secrets.token_hex(16)}
+        asyncio.create_task(saveFile(fileName=file.filename.replace(" ",""),filePath=file_path,drm=drm))
+        return responses.JSONResponse(content={"key_id":drm.get("key_id"),"key":drm.get("key")},status_code=status.HTTP_202_ACCEPTED)
+    await service.removeLocalFiles(renderedFiles=None,Path=cfg.outputPath+file.filename)
+    return responses.JSONResponse(content={"error":"doesn't support you're video"},status_code=status.HTTP_406_NOT_ACCEPTABLE)
 
 @router.post("/checkPassword/")
-async def check_password(filename: str=Form(...),password: str=Form(...)):
+async def check_password(response: Response, filename: str = Form(...), password: str = Form(...)):
     mongoRepo = MongoRepository()
     doc = await mongoRepo.get_status(filename)
-    if dict(doc).get('password') != make_hash(password):
-        return responses.JSONResponse(content={"message": "you don't have permission to this video"}, status_code=403)
-    #jwt = create_jwt_token({"key_id": dict(doc).get('key_uuid'),"key": dict(doc).get('password')})
-    return responses.JSONResponse(content={"key_id": dict(doc).get('key_uuid'),"key": dict(doc).get('password')},status_code=200)
 
+    if dict(doc).get('password') != make_hash(password):
+        return JSONResponse({"message": "you don't have permission to this video"}, status_code=403)
+
+    # Set cookie
+    response.set_cookie(
+        key="session_id",
+        value="52c19c39f302cb1ebc04f6861ae0140e",
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=3600,
+    )
+
+    # Return using SAME response object
+    return JSONResponse(
+        content={
+            "key_id": dict(doc).get('key_uuid'),
+            "key": dict(doc).get('password')
+        },
+        status_code=200,
+        headers=response.headers  # <<< VERY IMPORTANT
+    )
 # @router.get("/stream/{filename:path}")
 # async def stream_from_minio(filename: str, request: Request):
 #     try:
@@ -139,6 +168,8 @@ async def check_password(filename: str=Form(...),password: str=Form(...)):
     
 @router.get("/stream/{filename:path}")
 async def stream_from_minio(filename: str, request: Request):
+    session_id = request.cookies.get("session_id")
+    print(session_id)
     cfg = Config()
     minioRepo = MinIORepository(bucket=cfg.minioBucketName,directory=cfg.minioDirectory)
     try:
@@ -150,3 +181,56 @@ async def stream_from_minio(filename: str, request: Request):
         print(e)
         raise HTTPException(status_code=500, detail="Internal server error")
     
+
+@router.get("/videos/{page}/{limit}")
+async def list_videos(
+    page: int,
+    limit: int
+):
+    mongo = MongoRepository()
+    
+    skip = (page - 1) * limit
+
+    # Fetch documents
+    docs = await mongo.collection.find(
+        {},
+        {   # Projection = hide fields
+            "password": 0,
+            "key_uuid": 0
+        }
+    ).skip(skip).limit(limit).to_list(length=limit)
+
+    # Convert ObjectId to string
+    for d in docs:
+        d["_id"] = str(d["_id"])
+
+    total_count = await mongo.collection.count_documents({})
+
+    return JSONResponse({
+        "page": page,
+        "limit": limit,
+        "total": total_count,
+        "data": docs
+    })
+
+
+@router.get("/video/status/{video_id}")
+async def get_video_status(video_id: str):
+    mongo = MongoRepository()
+    
+    # Convert string to ObjectId
+    try:
+        oid = ObjectId(video_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid video ID")
+    
+    # Fetch only the status field
+    doc = await mongo.collection.find_one(
+        {"_id": oid},
+        {"status": 1, "_id": 0}  # projection to only return status
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    return JSONResponse(doc)
