@@ -21,3 +21,4 @@ class MongoRepository:
     async def get_status(self, filename: str):
         """Fetch file upload status"""
         return await self.collection.find_one({"filename": filename})
+        

@@ -170,7 +170,12 @@
     // ---------- HLS ----------
     async function initHls(sourceUrl) {
       if (Hls.isSupported()) {
-        hls = new Hls();
+        //hls = new Hls();
+        hls = new Hls({
+          xhrSetup: function(xhr) {
+            xhr.withCredentials = true; // ensures cookie is sent for each .ts request
+          }
+        });
         hls.loadSource(sourceUrl);
         hls.attachMedia(video);
 

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from repository.minio import MinIORepository
 from repository.mongo import MongoRepository
 from fastapi.responses import StreamingResponse,JSONResponse
-from fastapi import APIRouter, UploadFile, status, responses, Response, Request,HTTPException,Form
+from fastapi import APIRouter, UploadFile, status, responses, Response, Request,HTTPException,Form,Cookie, HTTPException
 
 router = APIRouter()
 
@@ -101,14 +101,14 @@ async def create_upload_file(file: UploadFile,password: str):
 async def check_password(response: Response, filename: str = Form(...), password: str = Form(...)):
     mongoRepo = MongoRepository()
     doc = await mongoRepo.get_status(filename)
-
-    if dict(doc).get('password') != make_hash(password):
+    passwordHashed = make_hash(password)
+    if dict(doc).get('password') != passwordHashed:
         return JSONResponse({"message": "you don't have permission to this video"}, status_code=403)
 
     # Set cookie
     response.set_cookie(
         key="session_id",
-        value="52c19c39f302cb1ebc04f6861ae0140e",
+        value=passwordHashed,
         httponly=True,
         secure=False,
         samesite="lax",
@@ -183,10 +183,7 @@ async def stream_from_minio(filename: str, request: Request):
     
 
 @router.get("/videos/{page}/{limit}")
-async def list_videos(
-    page: int,
-    limit: int
-):
+async def list_videos(page: int,limit: int):
     mongo = MongoRepository()
     
     skip = (page - 1) * limit
@@ -234,3 +231,11 @@ async def get_video_status(video_id: str):
         raise HTTPException(status_code=404, detail="Video not found")
     
     return JSONResponse(doc)
+
+@router.get("/get-cookie")
+def read_cookie(request: Request):
+    uuid = request.cookies.get("uuid")   # <-- get cookie by name
+    if uuid is None:
+        raise HTTPException(status_code=400, detail="No cookie found")
+
+    return {"uuid": uuid}

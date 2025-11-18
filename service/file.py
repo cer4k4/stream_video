@@ -40,11 +40,11 @@ class FileService:
         cmd = ["ffprobe" , "-v" , "error" ,"-show_entries" ,"format=format_name" , "-of" ,"default=noprint_wrappers=1:nokey=1" ,f"{self.outPutPath}{self.fileName}" ]
         output = self.run(cmd)
         names = output.split(",")
-        if len(names) > 2:
+    
+        if len(names) >= 2:
             for n in names:
                 if n in formats:
                     return True
-    
         if output[:-1] in formats:
             return True
         
